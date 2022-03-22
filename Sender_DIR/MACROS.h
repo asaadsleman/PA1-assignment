@@ -15,14 +15,8 @@
 #include <Windows.h>
 #pragma comment(lib, "Ws2_32.lib")
 
-
-#define FDATA_BITS		26												// BITS TO ENCODE
-#define BYTES_IN_FRAME			31												// ENCODED BITS
-#define PARITY_BITS	5												// PARITY BITS
-#define FRAMES_IN_PACKET		31												// ENCODED ELEMENTS IN PACKET
-#define BYTES_IN_PACKET			FRAMES_IN_PACKET * BYTES_IN_FRAME * 20			// PACKET BYTES
-#define DATA_BYTES_IN_PACKET	FRAMES_IN_PACKET * DATA_BYTES_IN_FRAME
-#define FILENAME_SIZE					500												// MAX FILENAME
+#define PARITY_BITS	5	// PARITY BITS
+#define FILENAME_SIZE	500	// MAX FILENAME
 
 
 #endif //PA1_ASSIGNMENT_MACROS_H

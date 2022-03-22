@@ -6,4 +6,4 @@ set(CMAKE_C_STANDARD 11)
 add_executable(PA1_assignment
         my_channel.c
         my_reciever.c
-        my_sender.c)
+        )

@@ -15,18 +15,14 @@
 #include <WS2tcpip.h>
 #include <math.h>
 #pragma comment(lib, "Ws2_32.lib")
-#include "HardCodedData.h"
+#include "MACROS.h"
 
 int start_sender(char* address, int port);
-
 int send_file(char* file_name, SOCKET* p_socket);
-
-int read_file_bits(FILE* p_file, int* data_buffer, int* bits_read);
-
-void simple_hamming(int* data_buffer, int* frame_buffer);
-
-int send_packet(char* buffer, const int message_len, SOCKET* p_connection_socket);
-
-void add_to_buffer(int* stream, int pos, int* addOn, int size);
-
-void int_to_char(int* source, char* dest, int num_of_bytes);
+int convertReadBytes(char* buffer, SOCKET *send_socket);
+int send_encoded(uint32_t *msg, SOCKET *send_socket);
+int hamming8Bytes(uint32_t *vals, SOCKET *send_socket);
+int parse_buffer(char* buffer, char *bin);
+int parity(uint32_t v);
+uint32_t computeParityBits(uint32_t h);
+uint32_t encode(uint32_t d);

@@ -25,21 +25,10 @@
 
 
 int start_reciever(char* address, int port);
-
-
 int communicate_server(char* file_name, SOCKET* p_socket);
-
-
-int parse_packet(FILE* p_file, int* source, int packet_size);
-
-
-void decode_hamming(int* encoded_buffer, int* decoded_buffer);
-
-
-int file_write_byte(FILE* p_file);
-
-
-void get_bits(char* read_target, int* data_buffer, int packet_size);
-
-
 TransferResult_t recv_packet(char* buffer, const int packet_length, SOCKET* p_connection_socket, int* bytes_received);
+int parse_packet(FILE* p_file, char * source);
+int parity(uint32_t v);
+uint32_t findErrorLocation(uint32_t h);
+uint32_t removeParityBits(uint32_t h);
+uint32_t decode(uint32_t h);

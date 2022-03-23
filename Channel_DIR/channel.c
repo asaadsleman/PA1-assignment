@@ -4,6 +4,12 @@
 
 #include "channel.h"
 
+
+int noise, prob, messagesInCycle,bitToFlip;
+int currentMessageInCycle=0;
+int flipped=0;
+
+
 void InitSock(WSADATA *wsaData)
 {
     const auto api_ver = MAKEWORD(2, 2);
@@ -22,14 +28,14 @@ void getHostIp(in_addr *aHostAddr)
     // With the Assist of Ido Barak
     if (gethostname(hostName, HOSTNAME_MAX_LEN - 1) != 0)
     {
-        fprintf(stderr, "%s", "ERROR IN HOST LOCAL NAME\n");
+        fprintf(stderr, "ERROR IN HOST LOCAL NAME\n");
         exit(1);
     }
 
     hostIpAddr = gethostbyname(hostName);
     if (hostIpAddr == NULL)
     {
-        fprintf(stderr, "%s", "ERROR IN HOST IPv4 ADDRESS\n");
+        fprintf(stderr, "ERROR IN HOST IPv4 ADDRESS\n");
         exit(1);
     }
 
@@ -50,7 +56,7 @@ SOCKET newSocket(sockaddr_in *aClientAddr, int* aAutoPort, BOOL aIsListen)
     // create the new socket
     if ((s = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
     {
-        fprintf(stderr, "%s", "ERROR IN CREATING TCP SOCKET\n" + WSAGetLastError());
+        fprintf(stderr, "ERROR IN CREATING TCP SOCKET %d\n",WSAGetLastError());
         exit(1);
     }
 
@@ -61,7 +67,7 @@ SOCKET newSocket(sockaddr_in *aClientAddr, int* aAutoPort, BOOL aIsListen)
         int bindRes = bind(s, (SOCKADDR*)aClientAddr, sizeof(*aClientAddr));
         if (bindRes)
         {
-            fprintf(stderr, "%s", "ERROR IN SOCKET BIND()\n" + WSAGetLastError());
+            fprintf(stderr, "ERROR IN SOCKET BIND() %d\n" ,WSAGetLastError());
             exit(1);
         }
 
@@ -69,14 +75,70 @@ SOCKET newSocket(sockaddr_in *aClientAddr, int* aAutoPort, BOOL aIsListen)
         int listenRes = listen(s, 1);
         if (listenRes)
         {
-            fprintf(stderr, "%s", "ERROR LISTENING TO SOCKET\n" + WSAGetLastError());
+            fprintf(stderr, "ERROR LISTENING TO SOCKET: %d\n", WSAGetLastError());
             exit(1);
         }
     }
 
     int addrSize = sizeof(*aClientAddr);
     getsockname(s, (SOCKADDR*)aClientAddr, &addrSize);
-
-
     *aAutoPort = ntohs(aClientAddr->sin_port);
+}
+
+void setNoiseType(int noiseCMD, int probCMD, int seedCMD, int spanCMD) {
+    noise = noiseCMD;
+    prob = probCMD / (2 ^ -16);
+    srand(seedCMD);
+    if(noiseCMD==0){ //deterministic
+        messagesInCycle=(int)floorf(spanCMD/31.0)+1;
+        bitToFlip=spanCMD%31;
+    }
+
+}
+
+void analyzeArguments(int argc, char**argv) {
+    char* end;
+    if(argc==3){
+        if(strcmp(argv[1], "-d")==0){
+            setNoiseType(0,0,0,strtol(argv[2], & end, 10));
+        }
+    }
+    else if(argc==4){
+        if(strcmp(argv[1], "-r")==0){
+            setNoiseType(1,strtol(argv[2], &end, 10),
+                         strtol(argv[3],&end,10),0);
+        }
+    }
+    else{
+        printf("Invalid number of arguments.\n");
+    }
+}
+int getRandom(){ //returns 1 with probability of n/2^-16
+    return rand()/RAND_MAX<=prob;
+}
+
+uint32_t noiseMessage(uint32_t message){
+    int i;
+    if(noise){//random
+        for(i=0; i<32; i++){
+            if (getRandom()){
+                message^=1<<i;
+                flipped++;
+            }
+        }return message;
+
+    }
+    else{ //deterministic
+        currentMessageInCycle++;
+        if(currentMessageInCycle!=messagesInCycle){
+            return message;
+        }
+        else{
+            message^=1<<bitToFlip;
+            flipped++;
+            currentMessageInCycle=0;
+            return message;
+        }
+    }
+
 }

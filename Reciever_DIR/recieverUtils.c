@@ -17,6 +17,7 @@
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <math.h>
+#include <stdint.h>
 #pragma comment(lib, "Ws2_32.lib")
 
 #include "MACROS.h"
@@ -25,12 +26,9 @@
 
 static int g_port;
 static char* g_ip;
-static unsigned char write_mask = 0;
 static unsigned int total_bytes_written = 0;
 static unsigned int total_bytes_received = 0;
-static unsigned int next_bit_index = 0;         // next bit index in a byte, max val = 7;
-static unsigned char write_byte = 0;            // next byte to write to file
-static unsigned int errors_corrected = 0;
+static int flipped=0;
 
 int start_reciever(char* address, int port){
     SOCKET comm_sock = INVALID_SOCKET;
@@ -56,15 +54,14 @@ int start_reciever(char* address, int port){
 
         total_bytes_received = 0;
         total_bytes_written = 0;
-        write_mask = 0;
-        write_byte = 0;
-        errors_corrected = 0;
 
+        // OPEN SOCKET
         comm_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (comm_sock == INVALID_SOCKET) {
             printf("ERROR: SOCKET CREATION FAILED!\n");
             return 1;
         }
+        // ESTABLISH CONNECTION
         if (connect(comm_sock, (SOCKADDR*)&receiver_s, sizeof(receiver_s)) == SOCKET_ERROR) {
             printf("CONNECTION TO SERVER FAILED ON %s:%d\n", address, port);
             return 1;
@@ -83,13 +80,8 @@ int start_reciever(char* address, int port){
         if (communicate_server(filename, &comm_sock)) {
             return 1;
         }
-
-        printf("received: %u bytes\n", total_bytes_received);
-        printf("wrote: %u bytes\n", total_bytes_written);
-        printf("corrected: %u errors\n", errors_corrected);
     }
 }
-
 int communicate_server(char* file_name, SOCKET* p_socket) {
     FILE* fp;
     if (fopen_s(&fp, file_name, "w")) {
@@ -99,14 +91,14 @@ int communicate_server(char* file_name, SOCKET* p_socket) {
 
     TransferResult_t recv_result;                       // recv_packet result
     int packet_size = 0;                                // number of bytes in received packet
-    int parsed_message[MAX_BITS_IN_PACKET] = { 0 };     // packet message parsed to bits
-    char message[MAX_BYTES_IN_PACKET];
+    uint32_t parsed_message[8] = { 0 };     // packet message parsed to bits
+    char message[32];
 
 
     // each iteration is per packet
     while (TRUE) {
 
-        recv_result = recv_packet(message, MAX_BYTES_IN_PACKET, p_socket, &packet_size);
+        recv_result = recv_packet(message,p_socket);
 
         if (recv_result == TRNS_FAILED) {
             if (fclose(fp))
@@ -114,9 +106,7 @@ int communicate_server(char* file_name, SOCKET* p_socket) {
             return 1;
         }
 
-
-        get_bits(message, parsed_message, packet_size);
-        if (parse_packet(fp, parsed_message, packet_size)) {
+        if (parse_packet(fp, message)) {
             if (fclose(fp))
                 printf("Error: unable to close file\n");
             return 1;
@@ -131,93 +121,33 @@ int communicate_server(char* file_name, SOCKET* p_socket) {
         }
     }
 }
+// parse 32 byte chars into 8 uint32_t vals, decode them
+int parse_packet(FILE* p_file, char * source) {
+    uint32_t temp = 0;
+    uint32_t vals[8];
+    char * str = "";
 
-
-int parse_packet(FILE* p_file, int* source, int packet_size) {
-
-    int total_bits = packet_size * BITS_IN_BYTE;
-    int frames = total_bits / BITS_IN_FRAME;
-    int parsed_frame[DATA_BITS_IN_FRAME];
-    int temp = 0;
-
-    for (int i = 0; i < frames; i++) {
-        decode_hamming(&(source[i * BITS_IN_FRAME]), parsed_frame);
-        for (int j = 0; j < DATA_BITS_IN_FRAME; j++) {
-            temp = parsed_frame[j];
-            temp *= pow(2, (double)BITS_IN_BYTE - 1 - next_bit_index);
-            write_byte += temp;
-            if (next_bit_index == 7) {
-                if (file_write_byte(p_file))
-                    return 1;
-                next_bit_index = 0;
-                write_byte = 0;
-            }
-            else
-                next_bit_index++;
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 4; ++j) {
+            strcat(str, &source[8*i + j]);
+        }
+        temp =(uint32_t) strtoul(str, NULL, 2);
+        vals[i] = temp;
+    }
+    for (int i = 0; i < 8; ++i) {
+        temp = decode(vals[i]);
+        str = (char *) &(temp & 0b00000011111111111111111111111111);
+        if (fputs(str, p_file) == EOF) {
+            fprintf(stderr, "ERROR IN WRITING TO FILE!\n");
+            return 1;
         }
     }
     return 0;
 }
-
-
-void decode_hamming(int* encoded_buffer, int* decoded_buffer) {
-    int error_index = 0;
-    for (int i = 0; i < BITS_IN_FRAME; i++) {
-        if (encoded_buffer[i] == 1)
-            error_index ^= (i + 1);
-    }
-
-    if (error_index != 0) {
-        encoded_buffer[error_index - 1] = !encoded_buffer[error_index - 1];
-        errors_corrected++;
-    }
-
-    int decoded_buffer_index = 0;
-    for (int i = 2; i < BITS_IN_FRAME; i++) {
-        if (ceil(log2((double)i + 1)) == floor(log2((double)i + 1)))
-            continue;
-        decoded_buffer[decoded_buffer_index] = encoded_buffer[i];
-        decoded_buffer_index++;
-    }
-}
-
-
-int file_write_byte(FILE* p_file) {
-    if (fputc(write_byte, p_file) != write_byte) {
-        printf("Error: could not write to file");
-        return 1;
-    }
-    total_bytes_written++;
-    write_byte = 0;
-    return 0;
-}
-
-
-void get_bits(char* read_target, int* data_buffer, int packet_size) {
-
-    int read_mask = 0;
-    int temp;
-    int ref_index = 0;
-
-    for (int i = 0; i < packet_size; i++) {
-
-        read_mask = 1 << (BITS_IN_BYTE - 1);
-        ref_index = i * BITS_IN_BYTE;
-
-        for (int j = 0; j < BITS_IN_BYTE; j++) {
-            temp = read_mask & read_target[i];
-            if (temp > 0) {
-                data_buffer[ref_index + j] = 1;
-            }
-            read_mask >>= 1;
-        }
-    }
-}
-
-
-TransferResult_t recv_packet(char* buffer, const int packet_length, SOCKET* p_connection_socket, int* bytes_received) {
+// receive 32 bit buffer
+TransferResult_t recv_packet(char* buffer, SOCKET* p_connection_socket) {
     char* p_current_place = buffer;
-    int bytes_transferred, bytes_left = packet_length, ret_val = 0, error = 0;
+    int bytes_transferred, bytes_left = 32, ret_val = 0, error = 0;
 
     // recieve bytes of data until done
     while (bytes_left > 0) {
@@ -228,7 +158,7 @@ TransferResult_t recv_packet(char* buffer, const int packet_length, SOCKET* p_co
 
             if (bytes_transferred == SOCKET_ERROR) {
                 error = WSAGetLastError();
-                // Assuming connection termination is only because the server completed sending the data
+                // TERMINATED CONNECTION
                 if (error == WSAENOTSOCK || error == WSAEINTR)
                     return TRNS_DISCONNECTED;
                 printf("Error: receive failed because of %d.\n", error);
@@ -255,11 +185,49 @@ TransferResult_t recv_packet(char* buffer, const int packet_length, SOCKET* p_co
 
         }
 
-        bytes_received += bytes_transferred;
         total_bytes_received += bytes_transferred;
         bytes_left -= bytes_transferred;
         p_current_place += bytes_transferred;
     }
 
     return TRNS_SUCCEEDED;
+}
+int parity(uint32_t v)
+{
+    v ^= v >> 16;
+    v ^= v >> 8;
+    v ^= v >> 4;
+    v &= 0xf;
+    return (0x6996 >> v) & 1;
+}
+uint32_t findErrorLocation(uint32_t h) {
+    //computing the parity check according to the algorithm
+    uint32_t i =
+            parity(h & 0b10101010101010101010101010101010) |
+            parity(h & 0b11001100110011001100110011001100) << 1 |
+            parity(h & 0b11110000111100001111000011110000) << 2 |
+            parity(h & 0b11111111000000001111111100000000) << 3 |
+            parity(h & 0b11111111111111110000000000000000) << 4;
+    return i;
+}
+uint32_t removeParityBits(uint32_t h){
+    uint32_t result=((h >> 3) & 1) | //bit at index 3
+                    ((h >> 4) & 0b1110| //bits at indices 5-7
+                     ((h >> 5) & 0b11111110000) |//bits at indices 9-15
+                     ((h >> 6) & 0b11111111111111100000000000)); //bits at indices 17-31
+    return result;
+}
+uint32_t decode(uint32_t h)
+{
+    uint32_t i = findErrorLocation(h);
+    if(h%2==1){ //handling the case that bit in index 0 was flipped by channel,
+        // this will not be detected by the hamming code algorithm because it ignores bit 0.
+        h^=1;
+        flipped++;
+    }
+    if (i != 0) {
+        h ^= (1 << i);
+        flipped++;
+    }
+    return removeParityBits(h);
 }

@@ -147,11 +147,22 @@ int convertReadBytes(char* buffer, SOCKET *send_socket){
 }
 
 
+int hamming8Bytes(uint32_t *vals, SOCKET *send_socket){
+    uint32_t temp = 0;
+    // encode each number separately
+    for (int i = 0; i < 8; ++i) {
+        temp = vals[i];
+        vals[i] = encode(temp);
+    }
+    send_encoded(vals, send_socket);
+    return 0;
+}
+
 int send_encoded(uint32_t *msg, SOCKET *send_socket){
     int sent = 0;
     int err_no = 0;
 
-    sent = send((*connected_sock), curr_Ind, empty, 0);
+    sent = send((*connected_sock), msg, sizeof(msg) * 8, 0);
     // PROBLEMS IN SEND
     if (sent == SOCKET_ERROR)
     {
@@ -166,18 +177,6 @@ int send_encoded(uint32_t *msg, SOCKET *send_socket){
         *send_socket = INVALID_SOCKET;
         return 1;
     }
-    return 0;
-}
-
-
-int hamming8Bytes(uint32_t *vals, SOCKET *send_socket){
-    uint32_t temp = 0;
-    // encode each number separately
-    for (int i = 0; i < 8; ++i) {
-        temp = vals[i];
-        vals[i] = encode(temp);
-    }
-    send_encoded(vals, send_socket);
     return 0;
 }
 

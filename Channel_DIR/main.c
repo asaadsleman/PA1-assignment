@@ -7,8 +7,6 @@
 int main(int argc, char* argv[])
 {
 
-    // Global variables
-    int FlippedBits = 0;
     int senderPort = 0;
     int recieverPort = 0;
     int sockAddrSize = sizeof(sockaddr_in);
@@ -22,20 +20,13 @@ int main(int argc, char* argv[])
 
 
     // Buffer size - will increase if file size is too large for current buffer
-    char *messageBuffer = (char*)malloc(sizeof(char)*BUFFER_SIZE_BYTES + 1);
+    char *messageBuffer = (char*)malloc(sizeof(char)*33);
     if (messageBuffer == NULL)
     {
-        std::cerr << "Error allocating memory\n";
+        fprintf(stderr, "FAILURE TO ALLOCATE BUFFER\n");
         exit(1);
     }
-    // TODO: deal with input errors
-    noiseFlag = argv[1];
-    noiseLevel = atoi(argv[2]);
-    if (argc == 4)             // random noise state
-    {
-        noiseSeed = atoi(argv[3]);
-    }
-
+    analyzeArguments(argc, argv);
 
     WSADATA wsadata;
     WinsockInit(&wsadata);
@@ -61,38 +52,36 @@ int main(int argc, char* argv[])
 
 
         // start getting message
-        int bytesRecieved = recv(SenderDataSock, messageBuffer, BUFFER_SIZE_BYTES, 0);
+        int bytesRecieved = recv(SenderDataSock, messageBuffer, 33, 0);
         messageBuffer[BUFFER_SIZE_BYTES] = '\0';                               // set the whole buffer as one string
 
         // Done recieving data from sender
         closesocket(SenderDataSock);
 
-
-
-        // Adding noise according to user specified flag
-
-        if (!strcmp("-d", noiseFlag)) // deterministic noise
-        {
-            Deterministic(noiseLevel, messageBuffer, &FlippedBits);
+        char * str = "";
+        uint32_t temp = 0;
+        uint32_t vals[8];
+        // convert to ints
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 4; ++j) {
+                strcat(str, &messageBuffer[8*i + j]);
+            }
+            temp =(uint32_t) strtoul(str, NULL, 2);
+            vals[i] = noiseMessage(temp);
         }
-        if (!strcmp("-r", noiseFlag))
-        {
-            Random(noiseLevel, messageBuffer, noiseSeed, &FlippedBits);
+        // convert back
+        for (int i = 0; i < 32; ++i) {
+            messageBuffer[i] = (char ) &(temp & 0b11111111);
         }
 
         // send message with noise
         int bytesSent = send(RecieverDataSock, messageBuffer, bytesRecieved, 0);
-        fprintf(stdout, "%s", "retransmitted: " + bytesSent + " bytes, ");
-        fprintf(stdout, "%s", "retransmitted: " + bytesSent + " bytes, ");
-        std::cout << "retransmitted " << bytesSent << " bytes, ";
-        std::cout << "flipped " << FlippedBits << " bits \n";
+        fprintf(stdout, "%s", "retransmitted: %d bytes, ", bytesSent);
         FlippedBits = 0;
         closesocket(RecieverDataSock);
 
-
-        std::cout << "continue? (yes/no)\n";
-        std::cin >> continueString;
-
+        fprintf(stdout, "continue? (yes/no)\n");
+        scanf("%s",continueString);
         if (!strcmp(continueString, "no"))
         {
             std::cout << "Quitting Program!\n";
